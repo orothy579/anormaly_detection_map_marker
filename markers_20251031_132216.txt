@@ -1,0 +1,11 @@
+# Saved by map_marker_app_yaml_v1_2.py
+# yaml: /home/changhyeon/isaac_ros_ws/map_marker/carter_navigation_fullwarehouse.yaml
+# image: /home/changhyeon/isaac_ros_ws/map_marker/carter_navigation_fullwarehouse.png
+# resolution: 0.05
+# origin: [7.975, 33.37500152587891, 0.0]
+# use_center: True
+id,type,u_px,v_px,theta_img_deg,x_map,y_map,theta_map_rad
+mk_1761884532220,goal,148.00,1066.00,90.00,15.400000,54.850002,-1.570796
+mk_1761884529088,start,179.00,967.00,172.41,16.950000,59.800002,-3.009041
+mk_1761884518033,goal,328.00,1178.00,90.00,24.400000,49.250002,-1.570796
+mk_1761884515000,start,255.00,969.00,0.00,20.750000,59.700002,0.000000
