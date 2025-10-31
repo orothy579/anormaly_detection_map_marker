@@ -1,0 +1,1 @@
+# anormaly_detection_map_marker
