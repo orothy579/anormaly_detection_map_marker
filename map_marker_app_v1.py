@@ -1,23 +1,16 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PNG 맵 좌표·방향 등록기 (YAML 지원) — v1.2
-변경 사항:
-- ✅ "시작 찍으면 자동으로 목적지" 옵션 추가 (Auto Pair)
-  - Start를 배치하면 자동으로 Goal 모드로 전환되고, Goal 배치 후 다시 Start로 복귀
-- ✅ 캔버스 스크롤/팬 추가
-  - 좌/우 스크롤바, 상/하 스크롤바
-  - 마우스 휠/Shift+휠 스크롤 (Linux/Windows/macOS 동시 지원)
-  - 휠 버튼(가운데 버튼) 드래그로 팬(scan_mark/scan_dragto)
-
-실행:
-  pip install pillow pyyaml
-  python3 map_marker_app_yaml_v1_2.py
+PNG 맵 좌표·방향 등록기 (YAML 지원) — v1.4 (patched)
+- 스택 순서 유지: TXT 로드 시 파일을 읽은 뒤 stack(top-first) 순서로 뒤집음
+- start/goal 페어링: 같은 번호를 부여 (최신 페어=1, 다음=2, ...)
+- 안전한 스크롤 바인딩: <MouseWheel>, <Shift-MouseWheel>, <Button-4/5>만 사용
 """
+
 import os
 import math
 import time
+import csv
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from dataclasses import dataclass
@@ -42,6 +35,8 @@ class Marker:
     y: float   # image px
     theta_deg: float  # heading in degrees [0..360)
     note: str = ""
+    source: str = "live"  # 'live' or 'file'
+    pair: int | None = None  # 파일에서 불러온 start-goal 묶음 번호 (같은 번호 사용)
 
 
 @dataclass
@@ -83,8 +78,8 @@ def map_to_img(x_map: float, y_map: float, theta_map_rad: float, W: int, H: int,
 class MapMarkerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PNG 맵 좌표·방향 등록기 (YAML 지원) v1.2")
-        self.geometry("1280x860")
+        self.title("맵 마커 등록기 v1.4")
+        self.geometry("1280x880")
         self.minsize(980, 640)
 
         # Image & canvas
@@ -99,8 +94,9 @@ class MapMarkerApp(tk.Tk):
 
         # Interaction state
         self.mode = tk.StringVar(value="start")
-        self.auto_pair = tk.BooleanVar(value=True)  # Start 후 Goal 자동 전환
-        self.use_center = tk.BooleanVar(value=True)  # save as cell centers
+        self.auto_pair = tk.BooleanVar(value=True)      # Start → Goal → Start
+        self.use_center = tk.BooleanVar(value=True)     # save as cell centers
+        self.hide_live = tk.BooleanVar(value=True)      # hide previously placed live markers
         self.markers: List[Marker] = []
         self.preview_line = None
         self.preview_head = None
@@ -125,9 +121,9 @@ class MapMarkerApp(tk.Tk):
         # Left panel
         left = ttk.Frame(root, padding=10)
         left.grid(row=0, column=0, sticky="ns")
-        for i in range(50):
+        for i in range(60):
             left.rowconfigure(i, weight=0)
-        left.rowconfigure(49, weight=1)
+        left.rowconfigure(59, weight=1)
 
         # --- YAML load ---
         ttk.Label(left, text="1) YAML 불러오기 (map_server)", font=("", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -151,21 +147,23 @@ class MapMarkerApp(tk.Tk):
         ttk.Radiobutton(mode_frame, text="목적지(Goal)", value="goal", variable=self.mode).pack(side="left")
 
         ttk.Checkbutton(left, text="시작 찍으면 다음은 자동으로 목적지(자동 페어)", variable=self.auto_pair).grid(row=9, column=0, sticky="w", pady=(4, 0))
-        ttk.Checkbutton(left, text="셀 중심 좌표로 저장(+0.5 오프셋)", variable=self.use_center).grid(row=10, column=0, sticky="w", pady=(4, 12))
-        ttk.Label(left, text="캔버스: 좌클릭 후 드래그 → 방향 지정 / 가운데버튼 드래그: 팬", foreground="#666").grid(row=11, column=0, sticky="w", pady=(0, 12))
+        ttk.Checkbutton(left, text="셀 중심 좌표로 저장(+0.5 오프셋)", variable=self.use_center).grid(row=10, column=0, sticky="w", pady=(4, 4))
+        ttk.Checkbutton(left, text="이전 라이브 마커 숨김(기록만)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=11, column=0, sticky="w", pady=(4, 12))
+        ttk.Label(left, text="캔버스: 좌클릭 후 드래그 → 방향 지정 / 가운데버튼 드래그: 팬", foreground="#666").grid(row=12, column=0, sticky="w", pady=(0, 12))
 
-        # --- Save/Clear ---
-        ttk.Label(left, text="4) 저장 / 관리", font=("", 11, "bold")).grid(row=12, column=0, sticky="w", pady=(0, 6))
+        # --- Save/Load/Clear ---
+        ttk.Label(left, text="4) 저장 / 불러오기 / 관리", font=("", 11, "bold")).grid(row=13, column=0, sticky="w", pady=(0, 6))
         btns = ttk.Frame(left)
-        btns.grid(row=13, column=0, sticky="ew")
+        btns.grid(row=14, column=0, sticky="ew", pady=(0, 2))
         ttk.Button(btns, text="저장(.txt: 픽셀+월드)", command=self.on_save).pack(side="left", padx=(0, 6))
+        ttk.Button(btns, text="불러오기(.txt → 화면 표시)", command=self.on_load_txt).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="전체 삭제", command=self.on_clear_all).pack(side="left")
-        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→아래(+Y) / map은 위(+Y)", foreground="#666").grid(row=14, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→아래(+Y) / map은 위(+Y)", foreground="#666").grid(row=15, column=0, sticky="w", pady=(10, 0))
 
-        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=15, column=0, sticky="w", pady=(12, 6))
+        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=16, column=0, sticky="w", pady=(12, 6))
         self.marker_list = tk.Listbox(left, height=18)
-        self.marker_list.grid(row=16, column=0, sticky="nsew")
-        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=17, column=0, sticky="ew", pady=(6, 0))
+        self.marker_list.grid(row=17, column=0, sticky="nsew")
+        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=18, column=0, sticky="ew", pady=(6, 0))
 
         # Canvas area + scrollbars
         canvas_wrap = ttk.Frame(root, padding=(0, 10, 10, 10))
@@ -197,17 +195,16 @@ class MapMarkerApp(tk.Tk):
 
     # -------------- Scroll bindings --------------
     def _bind_scroll_events(self):
-        # Windows/Mac: <MouseWheel>, Linux: Button-4/5
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)          # vertical (Win/Mac)
-        self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)  # horizontal (Win/Mac)
-
-        # Linux
+        # Windows/macOS
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)              # vertical
+        self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)  # horizontal
+        # Linux (X11)
         self.canvas.bind("<Button-4>", lambda e: self.canvas.yview_scroll(-3, "units"))
         self.canvas.bind("<Button-5>", lambda e: self.canvas.yview_scroll(+3, "units"))
-        # Horizontal on Linux usually needs custom handling; we skip for simplicity
 
     def _on_mousewheel(self, event):
-        if event.state & 0x0001:  # Shift pressed → horizontal
+        # Shift 누르면 수평 스크롤, 아니면 수직
+        if event.state & 0x0001:
             self.canvas.xview_scroll(-1 * int(event.delta / 120), "units")
         else:
             self.canvas.yview_scroll(-1 * int(event.delta / 120), "units")
@@ -294,9 +291,7 @@ class MapMarkerApp(tk.Tk):
         self.img_size = img.size  # (W, H)
         self.img_tk = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
-        # Scroll region to image bounds
         self.canvas.config(scrollregion=(0, 0, self.img_size[0], self.img_size[1]))
-        # Put image inside a window at (0,0)
         self.canvas.create_image(0, 0, anchor="nw", image=self.img_tk, tags=("map",))
         self._redraw_all_markers()
         self.img_info.config(text=f"원본 크기: {self.img_size[0]} x {self.img_size[1]} px")
@@ -306,7 +301,6 @@ class MapMarkerApp(tk.Tk):
     def on_mouse_down(self, event):
         if not self.img:
             return
-        # Convert from canvas to image space using canvas coords
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         self.drag_start = (x, y)
@@ -344,40 +338,47 @@ class MapMarkerApp(tk.Tk):
             x=float(x0),
             y=float(y0),
             theta_deg=float(theta_deg),
+            source="live",
         )
         self.markers.insert(0, mk)
         self._redraw_all_markers()
         self._refresh_marker_list()
 
-        # Auto pair toggle: Start → Goal → Start
         if self.auto_pair.get():
-            if self.mode.get() == "start":
-                self.mode.set("goal")
-            else:
-                self.mode.set("start")
+            self.mode.set("goal" if self.mode.get() == "start" else "start")
 
         self.drag_start = None
 
     def _draw_preview(self, x0, y0, x1, y1):
         self._clear_preview()
-        self.preview_line = self.canvas.create_line(x0, y0, x1, y1, fill="#2563eb", dash=(4, 3), width=2)
+        self.preview_line = self.canvas.create_line(x0, y0, x1, y1, fill="#2563eb", dash=(4, 3), width=2, tags=("preview",))
         self.preview_head = self._draw_arrow_head(x0, y0, x1, y1, fill="#2563eb")
+        self.canvas.addtag_withtag("preview", self.preview_head)
 
     def _clear_preview(self):
-        if self.preview_line:
-            self.canvas.delete(self.preview_line)
-            self.preview_line = None
-        if self.preview_head:
-            self.canvas.delete(self.preview_head)
-            self.preview_head = None
+        for item in self.canvas.find_withtag("preview"):
+            self.canvas.delete(item)
+        self.preview_line = None
+        self.preview_head = None
 
     def _redraw_all_markers(self):
-        # Remove existing markers
         for item in self.canvas.find_withtag("marker"):
             self.canvas.delete(item)
         if not self.img:
             return
+
+        # hide_live가 켜져 있으면: 'live' 중에서 가장 최근 START 1개 + GOAL 1개만 보여준다
+        allowed_live_ids = set()
+        if self.hide_live.get():
+            seen = {"start": False, "goal": False}
+            for mk in self.markers:
+                if mk.source == "live" and not seen.get(mk.type, False):
+                    allowed_live_ids.add(mk.id)
+                    seen[mk.type] = True
+
         for mk in self.markers:
+            if mk.source == "live" and self.hide_live.get() and mk.id not in allowed_live_ids:
+                continue
             self._draw_marker(mk)
 
     def _draw_marker(self, mk: Marker):
@@ -385,12 +386,21 @@ class MapMarkerApp(tk.Tk):
         theta = math.radians(mk.theta_deg)
         x1 = mk.x + math.cos(theta) * length
         y1 = mk.y + math.sin(theta) * length
-        color = "#16a34a" if mk.type == "start" else "#dc2626"
+        color = "#111827" if mk.source == "file" else ("#16a34a" if mk.type == "start" else "#dc2626")
         self.canvas.create_line(mk.x, mk.y, x1, y1, fill=color, width=3, tags=("marker",))
         head = self._draw_arrow_head(mk.x, mk.y, x1, y1, fill=color)
         self.canvas.addtag_withtag("marker", head)
-        self.canvas.create_text(mk.x + 8, mk.y - 8, text=("S" if mk.type == "start" else "G"),
-                                font=("Arial", 10, "bold"), fill="#111", tags=("marker",))
+
+        if mk.source == "file" and getattr(mk, "pair", None) is not None:
+            r = 11
+            self.canvas.create_oval(mk.x - r, mk.y - r, mk.x + r, mk.y + r,
+                                    fill="#ffffff", outline=color, width=2, tags=("marker",))
+            self.canvas.create_text(mk.x, mk.y, text=str(mk.pair),
+                                    font=("Arial", 10, "bold"), fill=color, tags=("marker",))
+        else:
+            label = "S" if mk.type == "start" else "G"
+            self.canvas.create_text(mk.x + 8, mk.y - 8, text=label,
+                                    font=("Arial", 10, "bold"), fill="#111", tags=("marker",))
 
     def _draw_arrow_head(self, x0, y0, x1, y1, fill="#000"):
         angle = math.atan2(y1 - y0, x1 - x0)
@@ -402,11 +412,15 @@ class MapMarkerApp(tk.Tk):
         right = (bx - math.cos(angle + math.pi/2) * ah, by - math.sin(angle + math.pi/2) * ah)
         return self.canvas.create_polygon((x1, y1, left[0], left[1], right[0], right[1]), fill=fill, outline="", tags=("marker",))
 
-    # -------------- Marker list / Save --------------
+    # -------------- Marker list / Save / Load --------------
     def _refresh_marker_list(self):
         self.marker_list.delete(0, tk.END)
         for mk in self.markers:
-            self.marker_list.insert(tk.END, f"{mk.id[-6:]}  {mk.type.upper()}  u={mk.x:.1f}  v={mk.y:.1f}  θ={mk.theta_deg:.1f}°")
+            if mk.source == "file" and getattr(mk, "pair", None) is not None:
+                tag = f"F#{mk.pair}"
+            else:
+                tag = "L"
+            self.marker_list.insert(tk.END, f"{mk.id[-6:]} [{tag}] {mk.type.upper()}  u={mk.x:.1f}  v={mk.y:.1f}  θ={mk.theta_deg:.1f}°")
 
     def on_delete_selected(self):
         sel = self.marker_list.curselection()
@@ -423,7 +437,7 @@ class MapMarkerApp(tk.Tk):
     def on_clear_all(self):
         if not self.markers:
             return
-        if messagebox.askyesno("확인", "모든 마커를 삭제할까요?"):
+        if messagebox.askyesno("확인", "모든 마커를 삭제할까요? (불러온 파일 마커 포함)"):
             self.markers.clear()
             self._refresh_marker_list()
             self._redraw_all_markers()
@@ -449,22 +463,127 @@ class MapMarkerApp(tk.Tk):
             return
         try:
             with open(path, "w", encoding="utf-8") as f:
-                f.write("# Saved by map_marker_app_yaml_v1_2.py\n")
+                f.write("# Saved by map_marker_app_yaml_v1_4_patched.py\n")
                 if self.yaml_path:
                     f.write(f"# yaml: {self.yaml_path}\n")
                 f.write(f"# image: {self.img_path}\n")
                 f.write(f"# resolution: {meta.resolution}\n")
                 f.write(f"# origin: [{meta.origin_x}, {meta.origin_y}, {meta.origin_yaw}]\n")
                 f.write(f"# use_center: {self.use_center.get()}\n")
-                f.write("id,type,u_px,v_px,theta_img_deg,x_map,y_map,theta_map_rad\n")
+                f.write("id,type,source,u_px,v_px,theta_img_deg,x_map,y_map,theta_map_rad\n")
                 for mk in self.markers:
                     x_map, y_map, theta_map = img_to_map(
                         mk.x, mk.y, mk.theta_deg, W, H, meta, use_center=self.use_center.get()
                     )
-                    f.write(f"{mk.id},{mk.type},{mk.x:.2f},{mk.y:.2f},{mk.theta_deg:.2f},{x_map:.6f},{y_map:.6f},{theta_map:.6f}\n")
+                    f.write(f"{mk.id},{mk.type},{mk.source},{mk.x:.2f},{mk.y:.2f},{mk.theta_deg:.2f},{x_map:.6f},{y_map:.6f},{theta_map:.6f}\n")
             messagebox.showinfo("완료", f"저장했습니다:\n{path}")
         except Exception as e:
             messagebox.showerror("에러", f"저장 실패: {e}")
+
+    def on_load_txt(self):
+        if not self.img:
+            messagebox.showwarning("경고", "먼저 이미지를 로드하세요.")
+            return
+        path = filedialog.askopenfilename(
+            title="마커 파일 열기 (.txt/.csv)",
+            filetypes=[("Text/CSV", "*.txt *.csv *.TXT *.CSV"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = [ln for ln in f if not ln.lstrip().startswith("#") and ln.strip()]
+            reader = csv.reader(lines)
+            rows = list(reader)
+        except Exception as e:
+            messagebox.showerror("에러", f"파일을 읽을 수 없습니다.\n{e}")
+            return
+
+        if not rows:
+            messagebox.showwarning("경고", "파일에 데이터가 없습니다.")
+            return
+
+        header = [c.strip().lower() for c in rows[0]]
+        has_header = any(name in header for name in ("u_px", "x_map", "source"))
+        start_idx = 1 if has_header else 0
+
+        def find(name):
+            try:
+                return header.index(name)
+            except ValueError:
+                return -1
+
+        if has_header:
+            cols = {
+                "id": find("id"),
+                "type": find("type"),
+                "source": find("source"),
+                "u": find("u_px"),
+                "v": find("v_px"),
+                "theta_deg": find("theta_img_deg"),
+                "x_map": find("x_map"),
+                "y_map": find("y_map"),
+                "theta_map": find("theta_map_rad"),
+            }
+        else:
+            cols = {"id": 0, "type": 1, "u": 2, "v": 3, "theta_deg": 4, "x_map": 5, "y_map": 6, "theta_map": 7}
+
+        # 1) 파일 순서대로 임시 리스트에 적재
+        tmp: List[Marker] = []
+        W, H = self.img_size
+        for row in rows[start_idx:]:
+            try:
+                _id = row[cols["id"]] if cols["id"] != -1 else f"mk_{int(time.time()*1000)}"
+                _type = (row[cols["type"]].strip().lower() if cols["type"] != -1 else "start")
+                if cols.get("u", -1) != -1 and cols.get("v", -1) != -1 and row[cols["u"]] and row[cols["v"]]:
+                    u = float(row[cols["u"]])
+                    v = float(row[cols["v"]])
+                    theta_deg = float(row[cols["theta_deg"]]) if cols.get("theta_deg", -1) != -1 and row[cols["theta_deg"]] else 0.0
+                else:
+                    x_map = float(row[cols["x_map"]])
+                    y_map = float(row[cols["y_map"]])
+                    theta_map = float(row[cols["theta_map"]]) if cols.get("theta_map", -1) != -1 and row[cols["theta_map"]] else 0.0
+                    u, v, theta_deg = map_to_img(x_map, y_map, theta_map, W, H, self.meta, use_center=self.use_center.get())
+                tmp.append(Marker(id=_id, type=_type, x=u, y=v, theta_deg=theta_deg, source="file"))
+            except Exception:
+                continue
+
+        # 2) 스택(top-first) 순서로 뒤집기
+        tmp = list(reversed(tmp))
+
+        # 3) start/goal 페어링: 최신 페어=1, 다음=2...
+        pair_no = 1
+        have_start = False
+        have_goal = False
+        for mk in tmp:
+            if mk.type == "start" and not have_start:
+                mk.pair = pair_no
+                have_start = True
+            elif mk.type == "goal" and not have_goal:
+                mk.pair = pair_no
+                have_goal = True
+            else:
+                if have_start and have_goal:
+                    pair_no += 1
+                    have_start = have_goal = False
+                # 새 페어 시작
+                if mk.type == "start":
+                    mk.pair = pair_no
+                    have_start = True
+                else:
+                    mk.pair = pair_no
+                    have_goal = True
+            if have_start and have_goal:
+                pair_no += 1
+                have_start = have_goal = False
+
+        # 4) 현재 스택 앞쪽에 추가(파일에서 불러온 것들이 최신처럼 보이게)
+        self.markers = tmp + self.markers
+
+        self._refresh_marker_list()
+        self._redraw_all_markers()
+        messagebox.showinfo("완료", f"불러온 마커: {len(tmp)}개\n{os.path.basename(path)}")
 
 
 if __name__ == "__main__":
