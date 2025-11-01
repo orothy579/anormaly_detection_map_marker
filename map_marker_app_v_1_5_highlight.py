@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PNG 맵 좌표·방향 등록기 (YAML 지원) — v1.5 (waypoints)
+PNG 맵 좌표·방향 등록기 (YAML 지원) — v1.5 (waypoints + list-hover/select highlight)
 - 새 경로 시작 시 첫 노드는 자동으로 START
 - "마지막 노드(Goal)로 종료" 버튼을 누르기 전까지는 계속 WAYPOINT
 - 버튼 누른 뒤 다음 클릭은 GOAL로 확정되고 해당 경로가 닫힘
 - hide_live가 켜져 있으면 가장 최근 라이브 경로(start+waypoint+goal)를 한 세트만 표시
 - 저장/불러오기 포맷에 route_id, seq 추가 (없어도 호환 로드)
+- [NEW] 마커 목록(Listbox)에서 항목에 마우스를 올리면 hover 하이라이트, 선택하면 강조표시 + 캔버스 자동 스크롤/중앙정렬
 """
 
 import os
@@ -109,6 +110,10 @@ class MapMarkerApp(tk.Tk):
         self.preview_line = None
         self.preview_head = None
 
+        # highlight state
+        self.selected_idx: Optional[int] = None
+        self.last_hover_idx: Optional[int] = None
+
         # Build UI
         self._build_ui()
         self._bind_scroll_events()
@@ -127,9 +132,9 @@ class MapMarkerApp(tk.Tk):
         # Left panel
         left = ttk.Frame(root, padding=10)
         left.grid(row=0, column=0, sticky="ns")
-        for i in range(60):
+        for i in range(80):
             left.rowconfigure(i, weight=0)
-        left.rowconfigure(59, weight=1)
+        left.rowconfigure(79, weight=1)
 
         # --- YAML load ---
         ttk.Label(left, text="1) YAML 불러오기 (map_server)", font=("", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -137,13 +142,13 @@ class MapMarkerApp(tk.Tk):
         self.yaml_info = ttk.Label(left, text="경로: -", foreground="#666")
         self.yaml_info.grid(row=2, column=0, sticky="w", pady=(4, 4))
         self.meta_info = ttk.Label(left, text="resolution: -, origin: -, yaw: -", foreground="#666")
-        self.meta_info.grid(row=3, column=0, sticky="w", pady=(0, 12))
+        self.meta_info.grid(row=3, column=0, sticky="w", pady=(0, 6))
+        self.img_info = ttk.Label(left, text="이미지: -", foreground="#666")
+        self.img_info.grid(row=4, column=0, sticky="w", pady=(0, 12))
 
         # --- Waypoint route control ---
         ttk.Label(left, text="2) 경로 입력", font=("", 11, "bold")).grid(row=7, column=0, sticky="w", pady=(0, 6))
-        # ttk.Button(left, text="새 경로 시작 (Start 자동)", command=self.on_new_route).grid(row=8, column=0, sticky="ew")
         ttk.Button(left, text="Goal 입력", command=self.on_arm_goal_once).grid(row=9, column=0, sticky="ew", pady=(4, 0))
-        # ttk.Checkbutton(left, text="셀 중심 좌표로 저장(+0.5 오프셋)", variable=self.use_center).grid(row=10, column=0, sticky="w", pady=(6, 0))
         ttk.Checkbutton(left, text="이전 라이브 경로 숨김(최신 경로만 표시)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=11, column=0, sticky="w", pady=(6, 12))
         ttk.Label(left, text="캔버스: 좌클릭 후 드래그 → 방향 지정 / 가운데버튼 드래그: 팬", foreground="#666").grid(row=12, column=0, sticky="w", pady=(0, 12))
 
@@ -160,6 +165,11 @@ class MapMarkerApp(tk.Tk):
         self.marker_list = tk.Listbox(left, height=18)
         self.marker_list.grid(row=17, column=0, sticky="nsew")
         ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=18, column=0, sticky="ew", pady=(6, 0))
+
+        # Listbox interactions: hover + select
+        self.marker_list.bind("<<ListboxSelect>>", self.on_list_select)
+        self.marker_list.bind("<Motion>", self.on_list_hover_motion)
+        self.marker_list.bind("<Leave>", lambda e: self._clear_highlight(kind="hover"))
 
         # Canvas area + scrollbars
         canvas_wrap = ttk.Frame(root, padding=(0, 10, 10, 10))
@@ -382,8 +392,12 @@ class MapMarkerApp(tk.Tk):
 
     # -------------- Redraw / Draw helpers --------------
     def _redraw_all_markers(self):
+        # clear drawn markers
         for item in self.canvas.find_withtag("marker"):
             self.canvas.delete(item)
+        # clear highlights (will be restored below if selection exists)
+        self._clear_highlight()
+
         if not self.img:
             return
 
@@ -398,6 +412,9 @@ class MapMarkerApp(tk.Tk):
             if mk.source == "live" and allowed_live_route is not None and mk.route_id != allowed_live_route:
                 continue
             self._draw_marker(mk)
+
+        # restore selection highlight if any
+        self._redraw_selection_highlight()
 
     def _draw_marker(self, mk: Marker):
         length = 40.0
@@ -438,6 +455,85 @@ class MapMarkerApp(tk.Tk):
         right = (bx - math.cos(angle + math.pi/2) * ah, by - math.sin(angle + math.pi/2) * ah)
         return self.canvas.create_polygon((x1, y1, left[0], left[1], right[0], right[1]), fill=fill, outline="", tags=("marker",))
 
+    # ---------- Highlight helpers ----------
+    def _clear_highlight(self, kind: Optional[str] = None):
+        """kind=None → 모두, 'hover' 또는 'selected'만 삭제"""
+        tag = "highlight" if kind is None else f"hl_{kind}"
+        for item in self.canvas.find_withtag(tag):
+            self.canvas.delete(item)
+
+    def _draw_highlight(self, mk: Marker, kind: str = "selected"):
+        color = "#f59e0b" if kind == "hover" else "#22c55e"  # amber for hover, green for selected
+        r1, r2 = 18, 26
+        # two concentric dashed rings
+        o1 = self.canvas.create_oval(mk.x - r1, mk.y - r1, mk.x + r1, mk.y + r1,
+                                     outline=color, width=3, dash=(4, 3), tags=("highlight", f"hl_{kind}"))
+        o2 = self.canvas.create_oval(mk.x - r2, mk.y - r2, mk.x + r2, mk.y + r2,
+                                     outline=color, width=2, dash=(2, 3), tags=("highlight", f"hl_{kind}"))
+        # crosshair
+        ch1 = self.canvas.create_line(mk.x - r2 - 6, mk.y, mk.x - 4, mk.y, fill=color, width=2, tags=("highlight", f"hl_{kind}"))
+        ch2 = self.canvas.create_line(mk.x + 4, mk.y, mk.x + r2 + 6, mk.y, fill=color, width=2, tags=("highlight", f"hl_{kind}"))
+        ch3 = self.canvas.create_line(mk.x, mk.y - r2 - 6, mk.x, mk.y - 4, fill=color, width=2, tags=("highlight", f"hl_{kind}"))
+        ch4 = self.canvas.create_line(mk.x, mk.y + 4, mk.x, mk.y + r2 + 6, fill=color, width=2, tags=("highlight", f"hl_{kind}"))
+        # make sure highlight is above markers
+        self.canvas.tag_raise("highlight")
+        return (o1, o2, ch1, ch2, ch3, ch4)
+
+    def _redraw_selection_highlight(self):
+        if self.selected_idx is None:
+            return
+        if 0 <= self.selected_idx < len(self.markers):
+            mk = self.markers[self.selected_idx]
+            self._draw_highlight(mk, kind="selected")
+        else:
+            self.selected_idx = None
+
+    def _scroll_to_center(self, x: float, y: float):
+        """Scroll canvas so that (x,y) is centered if possible."""
+        W, H = self.img_size
+        if W <= 0 or H <= 0:
+            return
+        self.update_idletasks()
+        vw = max(1, self.canvas.winfo_width())
+        vh = max(1, self.canvas.winfo_height())
+        denom_x = max(1, W - vw)
+        denom_y = max(1, H - vh)
+        fx = (x - vw / 2) / denom_x
+        fy = (y - vh / 2) / denom_y
+        fx = 0.0 if fx < 0 else 1.0 if fx > 1 else fx
+        fy = 0.0 if fy < 0 else 1.0 if fy > 1 else fy
+        self.canvas.xview_moveto(fx)
+        self.canvas.yview_moveto(fy)
+
+    # ---------- Listbox callbacks ----------
+    def on_list_select(self, event=None):
+        sel = self.marker_list.curselection()
+        if not sel:
+            self.selected_idx = None
+            self._clear_highlight(kind="selected")
+            return
+        idx = sel[0]
+        if idx < 0 or idx >= len(self.markers):
+            return
+        self.selected_idx = idx
+        mk = self.markers[idx]
+        self._clear_highlight(kind="selected")
+        self._draw_highlight(mk, kind="selected")
+        self._scroll_to_center(mk.x, mk.y)
+
+    def on_list_hover_motion(self, event):
+        idx = self.marker_list.nearest(event.y)
+        if idx < 0 or idx >= len(self.markers):
+            self._clear_highlight(kind="hover")
+            self.last_hover_idx = None
+            return
+        if self.last_hover_idx == idx:
+            return
+        self.last_hover_idx = idx
+        mk = self.markers[idx]
+        self._clear_highlight(kind="hover")
+        self._draw_highlight(mk, kind="hover")
+
     # -------------- List / Save / Load / Delete --------------
     def _refresh_marker_list(self):
         self.marker_list.delete(0, tk.END)
@@ -447,6 +543,13 @@ class MapMarkerApp(tk.Tk):
                 tk.END,
                 f"{mk.id[-6:]} [{tag}] route={mk.route_id} seq={mk.seq} {mk.type.upper()}  u={mk.x:.1f} v={mk.y:.1f} θ={mk.theta_deg:.1f}°"
             )
+        # selection index 유효성 보정
+        if self.selected_idx is not None:
+            if 0 <= self.selected_idx < len(self.markers):
+                self.marker_list.selection_clear(0, tk.END)
+                self.marker_list.selection_set(self.selected_idx)
+            else:
+                self.selected_idx = None
 
     def on_delete_selected(self):
         sel = self.marker_list.curselection()
@@ -457,6 +560,12 @@ class MapMarkerApp(tk.Tk):
             del self.markers[idx]
         except IndexError:
             return
+        # 선택 인덱스 보정
+        if self.selected_idx is not None:
+            if idx < self.selected_idx:
+                self.selected_idx -= 1
+            elif idx == self.selected_idx:
+                self.selected_idx = None
         self._refresh_marker_list()
         self._redraw_all_markers()
 
@@ -465,6 +574,7 @@ class MapMarkerApp(tk.Tk):
             return
         if messagebox.askyesno("확인", "모든 마커를 삭제할까요? (불러온 파일 마커 포함)"):
             self.markers.clear()
+            self.selected_idx = None
             self._refresh_marker_list()
             self._redraw_all_markers()
             # reset route state
