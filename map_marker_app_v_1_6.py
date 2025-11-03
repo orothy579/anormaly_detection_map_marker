@@ -81,7 +81,7 @@ def map_to_img(x_map: float, y_map: float, theta_map_rad: float, W: int, H: int,
 class MapMarkerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("맵 마커 등록기 v1.5")
+        self.title("맵 마커 등록기 v1.6")
         self.geometry("1280x880")
         self.minsize(980, 640)
 
@@ -348,11 +348,11 @@ class MapMarkerApp(tk.Tk):
             self.current_route_id += 1
             self.current_route_open = True
             self.next_is_goal = False
-            self.next_seq = 0
+            self.next_seq = -1
 
         self.next_seq += 1
 
-        if self.next_seq == 1:
+        if self.next_seq == 0:
             mtype = "start"
         else:
             if self.next_is_goal:
