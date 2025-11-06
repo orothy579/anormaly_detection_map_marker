@@ -1,0 +1,13 @@
+# Saved by map_marker_app_yaml_v1_5_waypoints.py
+# yaml: /home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test1_pi.yaml
+# image: /home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test1_pi.png
+# resolution: 0.05
+# origin: [-27.975, -41.37500152587891, 0.0]
+# use_center: True
+id,type,source,route_id,seq,u_px,v_px,theta_img_deg,x_map,y_map,theta_map_rad
+mk_1762413065248,start,live,4,0,405.00,324.00,264.29,-7.700000,17.199998,1.670465
+mk_1762413066459,waypoint,live,4,1,410.00,294.00,12.99,-7.450000,18.699998,-0.226799
+mk_1762413067697,waypoint,live,4,2,433.00,297.00,266.99,-6.300000,18.549998,1.623379
+mk_1762413068897,waypoint,live,4,3,431.00,259.00,255.38,-6.400000,20.449998,1.825979
+mk_1762413070288,waypoint,live,4,4,423.00,217.00,270.00,-6.800000,22.549998,1.570796
+mk_1762413072819,goal,live,4,5,426.00,175.00,270.00,-6.650000,24.649998,1.570796
