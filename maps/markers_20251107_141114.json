@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "version": "1.8",
+    "saved_by": "map_marker_app_v_1_8.py",
+    "yaml_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test2.yaml",
+    "image_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test2.png",
+    "resolution": 0.05,
+    "origin": [
+      -27.975,
+      -41.37500152587891,
+      0.0
+    ],
+    "use_center": true
+  },
+  "markers": [
+    {
+      "id": "mk_1762492260020",
+      "type": "start",
+      "source": "live",
+      "route_id": 1,
+      "seq": 0,
+      "u_px": 206.15,
+      "v_px": 691.71,
+      "theta_img_deg": 355.29,
+      "x_map": -17.642706,
+      "y_map": -1.185319,
+      "theta_map_rad": 0.082168
+    },
+    {
+      "id": "mk_1762492260581",
+      "type": "goal",
+      "source": "live",
+      "route_id": 1,
+      "seq": 999,
+      "u_px": 330.95,
+      "v_px": 678.67,
+      "theta_img_deg": 0.0,
+      "x_map": -11.402447,
+      "y_map": -0.533352,
+      "theta_map_rad": 0.0
+    }
+  ]
+}

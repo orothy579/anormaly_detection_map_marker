@@ -123,6 +123,7 @@ class MapMarkerApp(tk.Tk):
         # highlight state
         self.selected_idx: Optional[int] = None
         self.last_hover_idx: Optional[int] = None
+        self.hovered_route_id: Optional[int] = None  # 호버된 마커의 route_id
 
         # Barrier state
         self.barrier_map: Optional[np.ndarray] = None  # 2D boolean array, True = barrier
@@ -133,6 +134,11 @@ class MapMarkerApp(tk.Tk):
         # Zoom state
         self.zoom_level: float = 1.0  # 현재 줌 레벨
         self.zoom_factor: float = 1.1  # 줌 인/아웃 배율
+        
+        # Cached images for performance
+        self._barrier_pil_original: Optional[Image.Image] = None  # 원본 barrier 이미지 (PIL)
+        self._barrier_tk_cached: Optional[ImageTk.PhotoImage] = None  # 캐시된 barrier 이미지
+        self._barrier_zoom_cached: float = 0.0  # 캐시된 barrier의 줌 레벨
 
         # Build UI
         self._build_ui()
@@ -209,7 +215,7 @@ class MapMarkerApp(tk.Tk):
         # Listbox interactions: hover + select
         self.marker_list.bind("<<ListboxSelect>>", self.on_list_select)
         self.marker_list.bind("<Motion>", self.on_list_hover_motion)
-        self.marker_list.bind("<Leave>", lambda e: self._clear_highlight(kind="hover"))
+        self.marker_list.bind("<Leave>", self.on_list_hover_leave)
 
         # Canvas area + scrollbars
         canvas_wrap = ttk.Frame(root, padding=(0, 10, 10, 10))
@@ -266,16 +272,16 @@ class MapMarkerApp(tk.Tk):
 
     def _on_linux_wheel(self, event):
         # Linux wheel events
+        # Ctrl 키가 눌려있으면 _on_zoom이 처리하도록 함 (바인딩된 이벤트 사용)
+        if event.state & 0x0004:  # Control key
+            # _on_zoom이 처리하도록 이벤트를 전달하지 않고 스크롤만 처리
+            # Ctrl+Button-4/5는 이미 _on_zoom에 바인딩되어 있으므로 여기서는 처리하지 않음
+            return
+        # Ctrl 키가 없을 때만 스크롤 처리
         if event.num == 4:
-            if event.state & 0x0004:  # Control key
-                self._zoom_at_point(event.x, event.y, 1.1)
-            else:
-                self.canvas.yview_scroll(-3, "units")
+            self.canvas.yview_scroll(-3, "units")
         elif event.num == 5:
-            if event.state & 0x0004:  # Control key
-                self._zoom_at_point(event.x, event.y, 1.0 / 1.1)
-            else:
-                self.canvas.yview_scroll(3, "units")
+            self.canvas.yview_scroll(3, "units")
 
     def _on_zoom(self, event):
         """Ctrl + 마우스 휠로 줌 인/아웃"""
@@ -283,23 +289,32 @@ class MapMarkerApp(tk.Tk):
             return
         
         # Get mouse position in canvas coordinates
-        x = self.canvas.canvasx(event.x)
-        y = self.canvas.canvasy(event.y)
+        if hasattr(event, 'x') and hasattr(event, 'y'):
+            x = self.canvas.canvasx(event.x)
+            y = self.canvas.canvasy(event.y)
+        else:
+            # Fallback: use canvas center
+            x = self.canvas.winfo_width() / 2
+            y = self.canvas.winfo_height() / 2
         
         # Determine zoom direction
-        if hasattr(event, 'delta'):
+        if hasattr(event, 'delta') and event.delta != 0:
             # Windows/macOS
             delta = event.delta
             if delta > 0:
-                zoom_factor = self.zoom_factor
+                zoom_factor = self.zoom_factor  # 확대
             else:
-                zoom_factor = 1.0 / self.zoom_factor
-        else:
+                zoom_factor = 1.0 / self.zoom_factor  # 축소
+        elif hasattr(event, 'num'):
             # Linux
             if event.num == 4:
-                zoom_factor = self.zoom_factor
+                zoom_factor = self.zoom_factor  # 확대
+            elif event.num == 5:
+                zoom_factor = 1.0 / self.zoom_factor  # 축소
             else:
-                zoom_factor = 1.0 / self.zoom_factor
+                return  # 알 수 없는 이벤트
+        else:
+            return  # 알 수 없는 이벤트
         
         self._zoom_at_point(x, y, zoom_factor)
 
@@ -325,8 +340,12 @@ class MapMarkerApp(tk.Tk):
         new_width = int(self.img_size[0] * self.zoom_level)
         new_height = int(self.img_size[1] * self.zoom_level)
         
-        # Resize image
-        resized_img = self.img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        # Resize image (NEAREST는 너무 품질이 낮으므로, 크기가 크면 BILINEAR 사용)
+        # 큰 이미지의 경우 BILINEAR이 LANCZOS보다 빠르면서도 품질이 좋음
+        if new_width > 2000 or new_height > 2000:
+            resized_img = self.img.resize((new_width, new_height), Image.Resampling.BILINEAR)
+        else:
+            resized_img = self.img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         self.img_tk = ImageTk.PhotoImage(resized_img)
         
         # Delete old map image and redraw
@@ -441,6 +460,10 @@ class MapMarkerApp(tk.Tk):
         self.canvas.create_image(0, 0, anchor="nw", image=self.img_tk, tags=("map",))
         # Reset barrier when loading new image
         self.barrier_map = None
+        # 캐시 초기화
+        self._barrier_pil_original = None
+        self._barrier_tk_cached = None
+        self._barrier_zoom_cached = 0.0
         self._redraw_all_markers()
         self.img_info.config(text=f"원본 크기: {self.img_size[0]} x {self.img_size[1]} px")
         self.update_idletasks()
@@ -551,6 +574,11 @@ class MapMarkerApp(tk.Tk):
         
         self.barrier_map = barrier
         
+        # 캐시 초기화 (새 barrier 생성 시)
+        self._barrier_pil_original = None
+        self._barrier_tk_cached = None
+        self._barrier_zoom_cached = 0.0
+        
         # Calculate actual map dimensions for info
         map_width_m = W * resolution
         map_height_m = H * resolution
@@ -599,27 +627,36 @@ class MapMarkerApp(tk.Tk):
         if self.barrier_map.shape[0] != H or self.barrier_map.shape[1] != W:
             return
         
-        # Draw barrier as semi-transparent overlay
-        # Use numpy for better performance
-        barrier_alpha = 0.3  # Semi-transparent
+        # 원본 barrier 이미지가 없거나 변경되었으면 생성
+        if self._barrier_pil_original is None:
+            barrier_alpha = 0.3  # Semi-transparent
+            # Create RGBA image
+            barrier_img = np.zeros((H, W, 4), dtype=np.uint8)
+            # Set red color where barrier is True
+            barrier_mask = self.barrier_map
+            barrier_img[barrier_mask, 0] = 255  # R
+            barrier_img[barrier_mask, 1] = 107  # G
+            barrier_img[barrier_mask, 2] = 107  # B
+            barrier_img[barrier_mask, 3] = int(255 * barrier_alpha)  # A
+            # Convert to PIL Image and cache
+            self._barrier_pil_original = Image.fromarray(barrier_img, mode='RGBA')
+            self._barrier_zoom_cached = 0.0  # 캐시 무효화
         
-        # Create RGBA image
-        barrier_img = np.zeros((H, W, 4), dtype=np.uint8)
-        # Set red color where barrier is True
-        barrier_mask = self.barrier_map
-        barrier_img[barrier_mask, 0] = 255  # R
-        barrier_img[barrier_mask, 1] = 107  # G
-        barrier_img[barrier_mask, 2] = 107  # B
-        barrier_img[barrier_mask, 3] = int(255 * barrier_alpha)  # A
+        # 줌 레벨이 변경되었거나 캐시가 없으면 리사이즈
+        if abs(self._barrier_zoom_cached - self.zoom_level) > 0.001 or self._barrier_tk_cached is None:
+            if self.zoom_level != 1.0:
+                new_width = int(W * self.zoom_level)
+                new_height = int(H * self.zoom_level)
+                # NEAREST를 사용하여 더 빠른 리사이즈 (barrier는 단순한 오버레이이므로)
+                barrier_pil_resized = self._barrier_pil_original.resize((new_width, new_height), Image.Resampling.NEAREST)
+            else:
+                barrier_pil_resized = self._barrier_pil_original
+            
+            self._barrier_tk_cached = ImageTk.PhotoImage(barrier_pil_resized)
+            self._barrier_zoom_cached = self.zoom_level
         
-        # Convert to PIL Image
-        barrier_pil = Image.fromarray(barrier_img, mode='RGBA')
-        barrier_tk = ImageTk.PhotoImage(barrier_pil)
-        self.canvas.create_image(0, 0, anchor="nw", image=barrier_tk, tags=("barrier",))
-        # Keep reference to prevent garbage collection
-        if not hasattr(self, '_barrier_tk_refs'):
-            self._barrier_tk_refs = []
-        self._barrier_tk_refs.append(barrier_tk)
+        # 캐시된 이미지 사용
+        self.canvas.create_image(0, 0, anchor="nw", image=self._barrier_tk_cached, tags=("barrier",))
 
     # -------------- Episode control --------------
     def on_new_episode(self):
@@ -1028,6 +1065,9 @@ class MapMarkerApp(tk.Tk):
             live_routes = [mk.route_id for mk in self.markers if mk.source == "live"]
             if live_routes:
                 allowed_live_route = max(live_routes)
+        
+        # 호버된 route_id가 있으면 해당 route만 표시
+        filter_route_id = self.hovered_route_id
 
         # Draw markers first (live 마커만 표시, saved는 숨김)
         for mk in self.markers:
@@ -1035,21 +1075,27 @@ class MapMarkerApp(tk.Tk):
                 continue  # saved 마커는 GUI에서 숨김
             if mk.source == "live" and allowed_live_route is not None and mk.route_id != allowed_live_route:
                 continue
+            # 호버된 route_id가 있으면 해당 route만 표시
+            if filter_route_id is not None and mk.route_id != filter_route_id:
+                continue
             self._draw_marker(mk)
         
         # Draw current path waypoints (if in path_input mode only)
         # fixed_start_goal 모드에서는 waypoint가 이미 markers에 추가되어 있으므로 중복 그리기 방지
         if self.episode_mode == 'path_input':
             for wp in self.current_path_waypoints:
+                # 호버된 route_id가 있으면 해당 route만 표시
+                if filter_route_id is not None and wp.route_id != filter_route_id:
+                    continue
                 self._draw_marker(wp)
         
         # Draw path connections and arrows (after markers)
-        self._draw_path_connections(allowed_live_route)
+        self._draw_path_connections(allowed_live_route, filter_route_id)
 
         # restore selection highlight if any
         self._redraw_selection_highlight()
 
-    def _draw_path_connections(self, allowed_live_route: Optional[int] = None):
+    def _draw_path_connections(self, allowed_live_route: Optional[int] = None, filter_route_id: Optional[int] = None):
         """경로 연결 선분 및 화살표 그리기"""
         # route_id별로 마커 그룹화 (saved 마커는 GUI에서 숨김)
         route_markers = {}
@@ -1058,6 +1104,9 @@ class MapMarkerApp(tk.Tk):
                 continue  # saved 마커는 GUI에서 숨김
             if mk.source == "live" and allowed_live_route is not None and mk.route_id != allowed_live_route:
                 continue
+            # 호버된 route_id가 있으면 해당 route만 표시
+            if filter_route_id is not None and mk.route_id != filter_route_id:
+                continue
             if mk.route_id not in route_markers:
                 route_markers[mk.route_id] = []
             route_markers[mk.route_id].append(mk)
@@ -1065,28 +1114,32 @@ class MapMarkerApp(tk.Tk):
         # 현재 path_input 또는 fixed_start_goal 모드의 waypoint도 포함
         if self.episode_mode in ('path_input', 'fixed_start_goal') and self.fixed_start and self.fixed_goal:
             route_id = self.current_route_id
-            # route_markers에 이미 있는 마커들 확인
-            existing_marker_ids = set()
-            if route_id in route_markers:
-                existing_marker_ids = {mk.id for mk in route_markers[route_id]}
-            
-            # start/goal이 route_markers에 없으면 추가
-            if self.fixed_start.id not in existing_marker_ids:
-                if route_id not in route_markers:
-                    route_markers[route_id] = []
-                route_markers[route_id].append(self.fixed_start)
-            
-            if self.fixed_goal.id not in existing_marker_ids:
-                if route_id not in route_markers:
-                    route_markers[route_id] = []
-                route_markers[route_id].append(self.fixed_goal)
-            
-            # current_path_waypoints의 waypoint 추가 (중복 제거)
-            for wp in self.current_path_waypoints:
-                if wp.id not in existing_marker_ids:
+            # 호버된 route_id가 있으면 해당 route만 표시
+            if filter_route_id is not None and route_id != filter_route_id:
+                pass  # 해당 route를 건너뜀
+            else:
+                # route_markers에 이미 있는 마커들 확인
+                existing_marker_ids = set()
+                if route_id in route_markers:
+                    existing_marker_ids = {mk.id for mk in route_markers[route_id]}
+                
+                # start/goal이 route_markers에 없으면 추가
+                if self.fixed_start.id not in existing_marker_ids:
                     if route_id not in route_markers:
                         route_markers[route_id] = []
-                    route_markers[route_id].append(wp)
+                    route_markers[route_id].append(self.fixed_start)
+                
+                if self.fixed_goal.id not in existing_marker_ids:
+                    if route_id not in route_markers:
+                        route_markers[route_id] = []
+                    route_markers[route_id].append(self.fixed_goal)
+                
+                # current_path_waypoints의 waypoint 추가 (중복 제거)
+                for wp in self.current_path_waypoints:
+                    if wp.id not in existing_marker_ids:
+                        if route_id not in route_markers:
+                            route_markers[route_id] = []
+                        route_markers[route_id].append(wp)
         
         # 마커가 없으면 path를 그리지 않음
         if not route_markers:
@@ -1259,6 +1312,8 @@ class MapMarkerApp(tk.Tk):
         if listbox_idx < 0 or listbox_idx >= len(self.markers):
             self._clear_highlight(kind="hover")
             self.last_hover_idx = None
+            self.hovered_route_id = None
+            self._redraw_all_markers()
             return
         if self.last_hover_idx == listbox_idx:
             return
@@ -1267,6 +1322,16 @@ class MapMarkerApp(tk.Tk):
         self._clear_highlight(kind="hover")
         # saved 마커도 하이라이트 표시 (캔버스에는 안 보이지만)
         self._draw_highlight(mk, kind="hover")
+        # 호버된 마커의 route_id 저장하고 해당 route만 표시
+        self.hovered_route_id = mk.route_id
+        self._redraw_all_markers()
+    
+    def on_list_hover_leave(self, event):
+        """리스트박스에서 마우스가 벗어나면 호버 상태 초기화"""
+        self._clear_highlight(kind="hover")
+        self.last_hover_idx = None
+        self.hovered_route_id = None
+        self._redraw_all_markers()
 
     # -------------- List / Save / Load / Delete --------------
     def _refresh_marker_list(self):
@@ -1300,15 +1365,59 @@ class MapMarkerApp(tk.Tk):
             return
         idx = sel[0]
         try:
-            del self.markers[idx]
+            marker = self.markers[idx]
         except IndexError:
             return
-        # 선택 인덱스 보정
-        if self.selected_idx is not None:
-            if idx < self.selected_idx:
-                self.selected_idx -= 1
-            elif idx == self.selected_idx:
-                self.selected_idx = None
+        
+        # start 또는 goal을 삭제하면 해당 route의 모든 마커 삭제
+        if marker.type in ("start", "goal"):
+            route_id = marker.route_id
+            
+            # 삭제되는 route가 현재 episode의 route인지 확인
+            is_current_episode_route = (self.episode_mode in ('path_input', 'fixed_start_goal') and 
+                                       self.current_route_id == route_id)
+            
+            # 같은 route_id를 가진 모든 마커 삭제
+            to_remove = [i for i, mk in enumerate(self.markers) if mk.route_id == route_id]
+            # 역순으로 삭제 (인덱스가 변경되지 않도록)
+            for i in reversed(to_remove):
+                del self.markers[i]
+            
+            # 현재 episode의 route를 삭제한 경우 episode 상태 정리
+            if is_current_episode_route:
+                # fixed_start/fixed_goal이 삭제된 route의 것인지 확인
+                if self.fixed_start and self.fixed_start.route_id == route_id:
+                    self.fixed_start = None
+                if self.fixed_goal and self.fixed_goal.route_id == route_id:
+                    self.fixed_goal = None
+                # current_path_waypoints에서도 삭제된 route의 waypoint 제거
+                self.current_path_waypoints = [wp for wp in self.current_path_waypoints 
+                                              if wp.route_id != route_id]
+                # episode 모드 초기화
+                if not self.fixed_start and not self.fixed_goal:
+                    self.episode_mode = 'idle'
+                    self._update_episode_status("대기 중")
+                    self.complete_path_btn.config(state="disabled")
+            
+            # 선택 인덱스 초기화 (삭제된 마커가 많으므로)
+            self.selected_idx = None
+        else:
+            # waypoint는 단일 삭제
+            # 현재 episode의 waypoint인지 확인
+            if (self.episode_mode in ('path_input', 'fixed_start_goal') and 
+                marker.route_id == self.current_route_id):
+                # current_path_waypoints에서도 제거
+                self.current_path_waypoints = [wp for wp in self.current_path_waypoints 
+                                              if wp.id != marker.id]
+            
+            del self.markers[idx]
+            # 선택 인덱스 보정
+            if self.selected_idx is not None:
+                if idx < self.selected_idx:
+                    self.selected_idx -= 1
+                elif idx == self.selected_idx:
+                    self.selected_idx = None
+        
         self._refresh_marker_list()
         self._redraw_all_markers()
 
