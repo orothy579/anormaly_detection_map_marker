@@ -1,7 +1,7 @@
-image: carter_navigation_warehouse.png
+image: bias_test.png
 mode: trinary
 resolution: 0.05
-origin: [-11.975, -17.975, 0.0000]
+origin: [-27.975, -41.37500152587891, 0.0000]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196

@@ -128,8 +128,8 @@ class MapMarkerApp(tk.Tk):
         # Barrier state
         self.barrier_map: Optional[np.ndarray] = None  # 2D boolean array, True = barrier
         self.show_barrier = tk.BooleanVar(value=True)
-        self.robot_width_m: float = 0.5  # meters
-        self.robot_depth_m: float = 0.5  # meters
+        self.robot_width_m: float = 1.0  # meters
+        self.robot_depth_m: float = 1.0  # meters
 
         # Zoom state
         self.zoom_level: float = 1.0  # 현재 줌 레벨
@@ -178,11 +178,11 @@ class MapMarkerApp(tk.Tk):
         barrier_frame.grid(row=7, column=0, sticky="ew", pady=(0, 12))
         ttk.Label(barrier_frame, text="로봇 가로(m):").grid(row=0, column=0, sticky="w", padx=(0, 4))
         self.robot_width_entry = ttk.Entry(barrier_frame, width=8)
-        self.robot_width_entry.insert(0, "0.5")
+        self.robot_width_entry.insert(0, "1.0")
         self.robot_width_entry.grid(row=0, column=1, sticky="w", padx=(0, 8))
         ttk.Label(barrier_frame, text="로봇 세로(m):").grid(row=0, column=2, sticky="w", padx=(0, 4))
         self.robot_depth_entry = ttk.Entry(barrier_frame, width=8)
-        self.robot_depth_entry.insert(0, "0.5")
+        self.robot_depth_entry.insert(0, "1.0")
         self.robot_depth_entry.grid(row=0, column=3, sticky="w")
         ttk.Button(left, text="배리어 생성", command=self.on_generate_barrier).grid(row=8, column=0, sticky="ew", pady=(4, 4))
         ttk.Checkbutton(left, text="배리어 표시", variable=self.show_barrier, command=self._redraw_all_markers).grid(row=9, column=0, sticky="w", pady=(0, 0))
@@ -205,7 +205,7 @@ class MapMarkerApp(tk.Tk):
         ttk.Button(btns, text="저장(.json)", command=self.on_save).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="불러오기(.json/.txt)", command=self.on_load_txt).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="전체 삭제", command=self.on_clear_all).pack(side="left")
-        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→아래(+Y) / map은 위(+Y)", foreground="#666").grid(row=18, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→위(+Y) / map은 위(+Y)", foreground="#666").grid(row=18, column=0, sticky="w", pady=(10, 0))
 
         ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=19, column=0, sticky="w", pady=(12, 6))
         self.marker_list = tk.Listbox(left, height=18)
@@ -673,7 +673,7 @@ class MapMarkerApp(tk.Tk):
             del self.markers[i]
         
         self.episode_mode = 'start_input'
-        self.current_route_id += 1
+        self.current_route_id = self._get_next_route_id()
         self.next_seq = 0
         self.current_path_waypoints = []
         self.fixed_start = None
@@ -718,7 +718,7 @@ class MapMarkerApp(tk.Tk):
                     del self.markers[i]
                 
                 self.episode_mode = 'start_input'
-                self.current_route_id += 1
+                self.current_route_id = self._get_next_route_id()
                 self.next_seq = 0
                 self.current_path_waypoints = []
                 self.fixed_start = None
@@ -736,7 +736,7 @@ class MapMarkerApp(tk.Tk):
                 
                 # fixed_start_goal 모드로 전환
                 self.episode_mode = 'fixed_start_goal'
-                self.current_route_id += 1  # 새로운 trajectory를 위한 route_id 증가
+                self.current_route_id = self._get_next_route_id()  # 새로운 trajectory를 위한 route_id
                 self.next_seq = 0
                 self.current_path_waypoints = []
                 
@@ -804,7 +804,7 @@ class MapMarkerApp(tk.Tk):
                     del self.markers[i]
                 
                 self.episode_mode = 'start_input'
-                self.current_route_id += 1
+                self.current_route_id = self._get_next_route_id()
                 self.next_seq = 0
                 self.current_path_waypoints = []
                 self.fixed_start = None
@@ -815,8 +815,8 @@ class MapMarkerApp(tk.Tk):
                 self.complete_path_btn.config(state="disabled")
             else:
                 # No: start/goal 고정 유지, 새로운 trajectory 생성
-                # 새로운 trajectory를 위한 route_id 증가 및 초기화
-                self.current_route_id += 1
+                # 새로운 trajectory를 위한 route_id
+                self.current_route_id = self._get_next_route_id()
                 self.next_seq = 0
                 self.current_path_waypoints = []  # 새로운 trajectory의 waypoint를 위해 초기화
                 
@@ -857,6 +857,56 @@ class MapMarkerApp(tk.Tk):
         for i in reversed(to_remove):
             del self.markers[i]
         self.current_path_waypoints = []
+
+    def _get_next_route_id(self) -> int:
+        """다음 route_id를 반환. 현재 존재하는 route_id 개수를 세어서 다음 번호를 할당"""
+        # 현재 존재하는 모든 route_id 수집
+        existing_route_ids = set()
+        for mk in self.markers:
+            if mk.route_id > 0:  # 0은 무시 (초기값)
+                existing_route_ids.add(mk.route_id)
+        
+        # 1부터 시작해서 빈 번호 찾기
+        next_id = 1
+        while next_id in existing_route_ids:
+            next_id += 1
+        
+        return next_id
+    
+    def _renumber_route_ids(self):
+        """모든 경로 ID를 1, 2, 3... 순서로 재정렬"""
+        # 현재 존재하는 모든 route_id 수집 (0 제외)
+        existing_route_ids = set()
+        for mk in self.markers:
+            if mk.route_id > 0:
+                existing_route_ids.add(mk.route_id)
+        
+        if not existing_route_ids:
+            return  # 재정렬할 경로가 없음
+        
+        # route_id를 정렬하여 매핑 생성 (1, 2, 3... 순서로)
+        sorted_ids = sorted(existing_route_ids)
+        id_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted_ids, start=1)}
+        
+        # 모든 마커의 route_id 재할당
+        for mk in self.markers:
+            if mk.route_id > 0 and mk.route_id in id_mapping:
+                mk.route_id = id_mapping[mk.route_id]
+        
+        # fixed_start, fixed_goal도 업데이트
+        if self.fixed_start and self.fixed_start.route_id > 0 and self.fixed_start.route_id in id_mapping:
+            self.fixed_start.route_id = id_mapping[self.fixed_start.route_id]
+        if self.fixed_goal and self.fixed_goal.route_id > 0 and self.fixed_goal.route_id in id_mapping:
+            self.fixed_goal.route_id = id_mapping[self.fixed_goal.route_id]
+        
+        # current_path_waypoints도 업데이트
+        for wp in self.current_path_waypoints:
+            if wp.route_id > 0 and wp.route_id in id_mapping:
+                wp.route_id = id_mapping[wp.route_id]
+        
+        # current_route_id도 업데이트 (현재 episode가 진행 중인 경우)
+        if self.current_route_id > 0 and self.current_route_id in id_mapping:
+            self.current_route_id = id_mapping[self.current_route_id]
 
     def _update_episode_status(self, text: str):
         """Episode 상태 텍스트 업데이트"""
@@ -920,8 +970,8 @@ class MapMarkerApp(tk.Tk):
                 # 클릭만 (드래그 없음) - 기본 방향 0도
                 theta_deg = 0.0
             else:
-                # 드래그로 방향 설정
-                theta_deg = math.degrees(math.atan2(dy, dx))
+                # 드래그로 방향 설정 (위쪽이 +90도가 되도록 -dy 사용)
+                theta_deg = math.degrees(math.atan2(-dy, dx))
                 if theta_deg < 0:
                     theta_deg += 360.0
             
@@ -959,8 +1009,8 @@ class MapMarkerApp(tk.Tk):
                 # 클릭만 (드래그 없음) - 기본 방향 0도
                 theta_deg = 0.0
             else:
-                # 드래그로 방향 설정
-                theta_deg = math.degrees(math.atan2(dy, dx))
+                # 드래그로 방향 설정 (위쪽이 +90도가 되도록 -dy 사용)
+                theta_deg = math.degrees(math.atan2(-dy, dx))
                 if theta_deg < 0:
                     theta_deg += 360.0
             
@@ -1207,7 +1257,8 @@ class MapMarkerApp(tk.Tk):
             length = 40.0 * self.zoom_level
             theta = math.radians(mk.theta_deg) if mk.theta_deg != 0.0 else 0.0
             x1 = x + math.cos(theta) * length
-            y1 = y + math.sin(theta) * length
+            # 화면 좌표계에서 위쪽은 y 감소이므로 -sin 사용
+            y1 = y - math.sin(theta) * length
 
             # body + head
             self.canvas.create_line(x, y, x1, y1, fill=color, width=max(1, int(3 * self.zoom_level)), tags=("marker",))
@@ -1401,6 +1452,9 @@ class MapMarkerApp(tk.Tk):
             
             # 선택 인덱스 초기화 (삭제된 마커가 많으므로)
             self.selected_idx = None
+            
+            # 경로 ID 재정렬 (1, 2, 3... 순서로)
+            self._renumber_route_ids()
         else:
             # waypoint는 단일 삭제
             # 현재 episode의 waypoint인지 확인
