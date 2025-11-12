@@ -70,7 +70,7 @@ def img_to_map(u: float, v: float, theta_img_deg: float, W: int, H: int, meta: M
     offs = 0.5 if use_center else 0.0
     x_map = x0 + (u + offs) * res
     y_map = y0 + (H - (v + offs)) * res
-    theta_map = wrap_to_pi(-math.radians(theta_img_deg) + yaw)
+    theta_map = wrap_to_pi(math.radians(theta_img_deg))
     return x_map, y_map, theta_map
 
 
@@ -80,7 +80,7 @@ def map_to_img(x_map: float, y_map: float, theta_map_rad: float, W: int, H: int,
     offs = 0.5 if use_center else 0.0
     u = (x_map - x0) / res - offs
     v = H - (y_map - y0) / res - offs
-    theta_img = wrap_to_pi(-(theta_map_rad - yaw))
+    theta_img = wrap_to_pi(theta_map_rad)
     return u, v, math.degrees(theta_img)
 
 

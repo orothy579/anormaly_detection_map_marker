@@ -1,0 +1,108 @@
+{
+  "metadata": {
+    "version": "1.8",
+    "saved_by": "map_marker_app_v_1_8.py",
+    "yaml_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test2.yaml",
+    "image_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_test2.png",
+    "resolution": 0.05,
+    "origin": [
+      -27.975,
+      -41.37500152587891,
+      0.0
+    ],
+    "use_center": true
+  },
+  "markers": [
+    {
+      "id": "mk_1762934196713",
+      "type": "start",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 0,
+      "u_px": 270.0,
+      "v_px": 519.0,
+      "theta_img_deg": -0.0,
+      "x_map": -14.45,
+      "y_map": 7.449998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1762934197503",
+      "type": "goal",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 6,
+      "u_px": 391.0,
+      "v_px": 457.0,
+      "theta_img_deg": 88.9,
+      "x_map": -8.4,
+      "y_map": 10.549998,
+      "theta_map_rad": 1.551568
+    },
+    {
+      "id": "mk_1762934200699",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 1,
+      "u_px": 305.0,
+      "v_px": 520.0,
+      "theta_img_deg": 0.0,
+      "x_map": -12.7,
+      "y_map": 7.399998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1762934201269",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 2,
+      "u_px": 339.0,
+      "v_px": 516.0,
+      "theta_img_deg": 0.0,
+      "x_map": -11.0,
+      "y_map": 7.599998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1762934201831",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 3,
+      "u_px": 368.0,
+      "v_px": 513.0,
+      "theta_img_deg": 0.0,
+      "x_map": -9.55,
+      "y_map": 7.749998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1762934202493",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 4,
+      "u_px": 386.0,
+      "v_px": 495.0,
+      "theta_img_deg": 0.0,
+      "x_map": -8.65,
+      "y_map": 8.649998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1762934203110",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 5,
+      "u_px": 392.0,
+      "v_px": 479.0,
+      "theta_img_deg": 0.0,
+      "x_map": -8.35,
+      "y_map": 9.449998,
+      "theta_map_rad": 0.0
+    }
+  ]
+}
