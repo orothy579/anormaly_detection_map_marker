@@ -195,22 +195,51 @@ class MapMarkerApp(tk.Tk):
         self.complete_path_btn.grid(row=12, column=0, sticky="ew", pady=(4, 4))
         self.episode_status = ttk.Label(left, text="status: idle", foreground="#666", font=("", 9))
         self.episode_status.grid(row=13, column=0, sticky="w", pady=(0, 6))
-        ttk.Checkbutton(left, text="이전 라이브 경로 숨김(최신 경로만 표시)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=14, column=0, sticky="w", pady=(6, 12))
-        ttk.Label(left, text="캔버스: 좌클릭 → 점 입력 / 가운데버튼 드래그: 팬 / Ctrl+휠: 줌", foreground="#666").grid(row=15, column=0, sticky="w", pady=(0, 12))
+        
+        # --- 좌표 직접 입력 (맵 좌표계) ---
+        coord_input_frame = ttk.LabelFrame(left, text="맵 좌표 직접 입력 (미터)", padding=6)
+        coord_input_frame.grid(row=14, column=0, sticky="ew", pady=(6, 6))
+        
+        # Start 좌표 입력
+        ttk.Label(coord_input_frame, text="시작점 (x, y, θ):").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        start_coord_frame = ttk.Frame(coord_input_frame)
+        start_coord_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+        self.start_x_entry = ttk.Entry(start_coord_frame, width=8)
+        self.start_x_entry.grid(row=0, column=0, padx=(0, 4))
+        self.start_y_entry = ttk.Entry(start_coord_frame, width=8)
+        self.start_y_entry.grid(row=0, column=1, padx=(0, 4))
+        self.start_theta_entry = ttk.Entry(start_coord_frame, width=8)
+        self.start_theta_entry.grid(row=0, column=2, padx=(0, 4))
+        ttk.Button(start_coord_frame, text="입력", command=self.on_input_start_coord, width=6).grid(row=0, column=3)
+        
+        # Goal 좌표 입력
+        ttk.Label(coord_input_frame, text="목적지 (x, y, θ):").grid(row=2, column=0, sticky="w", pady=(0, 4))
+        goal_coord_frame = ttk.Frame(coord_input_frame)
+        goal_coord_frame.grid(row=3, column=0, sticky="ew", pady=(0, 0))
+        self.goal_x_entry = ttk.Entry(goal_coord_frame, width=8)
+        self.goal_x_entry.grid(row=0, column=0, padx=(0, 4))
+        self.goal_y_entry = ttk.Entry(goal_coord_frame, width=8)
+        self.goal_y_entry.grid(row=0, column=1, padx=(0, 4))
+        self.goal_theta_entry = ttk.Entry(goal_coord_frame, width=8)
+        self.goal_theta_entry.grid(row=0, column=2, padx=(0, 4))
+        ttk.Button(goal_coord_frame, text="입력", command=self.on_input_goal_coord, width=6).grid(row=0, column=3)
+        
+        ttk.Checkbutton(left, text="이전 라이브 경로 숨김(최신 경로만 표시)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=15, column=0, sticky="w", pady=(6, 12))
+        ttk.Label(left, text="캔버스: 좌클릭 → 점 입력 / 가운데버튼 드래그: 팬 / Ctrl+휠: 줌", foreground="#666").grid(row=16, column=0, sticky="w", pady=(0, 12))
 
         # --- Save/Load/Clear ---
-        ttk.Label(left, text="3) 저장 / 불러오기 / 관리", font=("", 11, "bold")).grid(row=16, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(left, text="3) 저장 / 불러오기 / 관리", font=("", 11, "bold")).grid(row=17, column=0, sticky="w", pady=(0, 6))
         btns = ttk.Frame(left)
-        btns.grid(row=17, column=0, sticky="ew", pady=(0, 2))
+        btns.grid(row=18, column=0, sticky="ew", pady=(0, 2))
         ttk.Button(btns, text="저장(.json)", command=self.on_save).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="불러오기(.json/.txt)", command=self.on_load_txt).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="전체 삭제", command=self.on_clear_all).pack(side="left")
-        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→위(+Y) / map은 위(+Y)", foreground="#666").grid(row=18, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→위(+Y) / map은 위(+Y)", foreground="#666").grid(row=19, column=0, sticky="w", pady=(10, 0))
 
-        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=19, column=0, sticky="w", pady=(12, 6))
+        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=20, column=0, sticky="w", pady=(12, 6))
         self.marker_list = tk.Listbox(left, height=18)
-        self.marker_list.grid(row=20, column=0, sticky="nsew")
-        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=21, column=0, sticky="ew", pady=(6, 0))
+        self.marker_list.grid(row=21, column=0, sticky="nsew")
+        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=22, column=0, sticky="ew", pady=(6, 0))
 
         # Listbox interactions: hover + select
         self.marker_list.bind("<<ListboxSelect>>", self.on_list_select)
@@ -680,9 +709,120 @@ class MapMarkerApp(tk.Tk):
         self.fixed_goal = None
         self._redraw_all_markers()
         self._refresh_marker_list()
-        self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하세요")
+        self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
         self.complete_path_btn.config(state="disabled")
-        messagebox.showinfo("안내", "새 Episode 시작\n1. 시작점을 클릭 후 드래그하여 방향 설정\n2. 목적지를 클릭 후 드래그하여 방향 설정\n3. 경로(waypoint)를 클릭하세요 (방향 없음)\n4. 'Path 입력 완료' 버튼을 누르세요")
+        messagebox.showinfo("안내", "새 Episode 시작\n1. 시작점을 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n2. 목적지를 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n3. 경로(waypoint)를 클릭하세요 (방향 없음)\n4. 'Path 입력 완료' 버튼을 누르세요")
+    
+    def on_input_start_coord(self):
+        """맵 좌표계에서 시작점 좌표를 직접 입력받아 마커 생성"""
+        if not self.img:
+            messagebox.showwarning("경고", "먼저 이미지를 로드하세요.")
+            return
+        
+        if self.episode_mode != 'start_input':
+            messagebox.showwarning("경고", "시작점 입력 모드가 아닙니다.")
+            return
+        
+        try:
+            x_map = float(self.start_x_entry.get())
+            y_map = float(self.start_y_entry.get())
+            theta_map_deg = float(self.start_theta_entry.get()) if self.start_theta_entry.get().strip() else 0.0
+        except ValueError:
+            messagebox.showerror("에러", "좌표값이 올바르지 않습니다. 숫자를 입력하세요.")
+            return
+        
+        # 맵 좌표를 이미지 픽셀 좌표로 변환
+        W, H = self.img_size
+        u, v, theta_img_deg = map_to_img(x_map, y_map, math.radians(theta_map_deg), W, H, self.meta, self.use_center.get())
+        
+        # 이미지 범위 체크
+        if u < 0 or u >= W or v < 0 or v >= H:
+            messagebox.showwarning("경고", f"입력한 좌표가 이미지 범위를 벗어났습니다.\n이미지 크기: {W}x{H}, 변환된 픽셀: ({u:.1f}, {v:.1f})")
+            return
+        
+        # 배리어 영역 체크
+        if self._is_in_barrier(u, v):
+            messagebox.showwarning("경고", f"배리어 영역에는 시작점을 생성할 수 없습니다.\n맵 좌표: ({x_map:.2f}, {y_map:.2f})")
+            return
+        
+        # 마커 생성
+        mk = Marker(
+            id=f"mk_{int(time.time()*1000)}",
+            type="start",
+            x=float(u),
+            y=float(v),
+            theta_deg=float(theta_img_deg),
+            source="live",
+            route_id=self.current_route_id,
+            seq=0
+        )
+        self.fixed_start = mk
+        self.markers.insert(0, mk)
+        self.episode_mode = 'goal_input'
+        self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
+        self._redraw_all_markers()
+        self._refresh_marker_list()
+        
+        # 입력 필드 초기화
+        self.start_x_entry.delete(0, tk.END)
+        self.start_y_entry.delete(0, tk.END)
+        self.start_theta_entry.delete(0, tk.END)
+    
+    def on_input_goal_coord(self):
+        """맵 좌표계에서 목적지 좌표를 직접 입력받아 마커 생성"""
+        if not self.img:
+            messagebox.showwarning("경고", "먼저 이미지를 로드하세요.")
+            return
+        
+        if self.episode_mode != 'goal_input':
+            messagebox.showwarning("경고", "목적지 입력 모드가 아닙니다.")
+            return
+        
+        try:
+            x_map = float(self.goal_x_entry.get())
+            y_map = float(self.goal_y_entry.get())
+            theta_map_deg = float(self.goal_theta_entry.get()) if self.goal_theta_entry.get().strip() else 0.0
+        except ValueError:
+            messagebox.showerror("에러", "좌표값이 올바르지 않습니다. 숫자를 입력하세요.")
+            return
+        
+        # 맵 좌표를 이미지 픽셀 좌표로 변환
+        W, H = self.img_size
+        u, v, theta_img_deg = map_to_img(x_map, y_map, math.radians(theta_map_deg), W, H, self.meta, self.use_center.get())
+        
+        # 이미지 범위 체크
+        if u < 0 or u >= W or v < 0 or v >= H:
+            messagebox.showwarning("경고", f"입력한 좌표가 이미지 범위를 벗어났습니다.\n이미지 크기: {W}x{H}, 변환된 픽셀: ({u:.1f}, {v:.1f})")
+            return
+        
+        # 배리어 영역 체크
+        if self._is_in_barrier(u, v):
+            messagebox.showwarning("경고", f"배리어 영역에는 목적지를 생성할 수 없습니다.\n맵 좌표: ({x_map:.2f}, {y_map:.2f})")
+            return
+        
+        # 마커 생성
+        mk = Marker(
+            id=f"mk_{int(time.time()*1000)}",
+            type="goal",
+            x=float(u),
+            y=float(v),
+            theta_deg=float(theta_img_deg),
+            source="live",
+            route_id=self.current_route_id,
+            seq=999  # 나중에 waypoint 개수에 따라 설정됨
+        )
+        self.fixed_goal = mk
+        self.markers.insert(0, mk)
+        self.episode_mode = 'path_input'
+        self._update_episode_status("경로(waypoint)를 클릭하여 추가하세요")
+        self.complete_path_btn.config(state="normal")
+        self._redraw_all_markers()
+        self._refresh_marker_list()
+        
+        # 입력 필드 초기화
+        self.goal_x_entry.delete(0, tk.END)
+        self.goal_y_entry.delete(0, tk.END)
+        self.goal_theta_entry.delete(0, tk.END)
 
     def on_complete_path(self):
         """Path 입력 완료: start/goal 재입력 여부 확인"""
