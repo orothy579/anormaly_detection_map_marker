@@ -104,6 +104,7 @@ class MapMarkerApp(tk.Tk):
         # Route state
         self.use_center = tk.BooleanVar(value=True)
         self.hide_live = tk.BooleanVar(value=True)
+        self.fixed_goal_mode = tk.BooleanVar(value=False)  # 목적지 고정 모드 체크박스
 
         self.markers: List[Marker] = []  # stack top at index 0
         self.current_route_id: int = 0
@@ -191,14 +192,15 @@ class MapMarkerApp(tk.Tk):
         ttk.Label(left, text="2) 경로 입력", font=("", 11, "bold")).grid(row=10, column=0, sticky="w", pady=(0, 6))
         self.new_episode_btn = ttk.Button(left, text="새 경로 입력", command=self.on_new_episode)
         self.new_episode_btn.grid(row=11, column=0, sticky="ew", pady=(4, 4))
+        ttk.Checkbutton(left, text="목적지 고정 모드", variable=self.fixed_goal_mode).grid(row=12, column=0, sticky="w", pady=(4, 4))
         self.complete_path_btn = ttk.Button(left, text="경로 입력 완료", command=self.on_complete_path, state="disabled")
-        self.complete_path_btn.grid(row=12, column=0, sticky="ew", pady=(4, 4))
+        self.complete_path_btn.grid(row=13, column=0, sticky="ew", pady=(4, 4))
         self.episode_status = ttk.Label(left, text="status: idle", foreground="#666", font=("", 9))
-        self.episode_status.grid(row=13, column=0, sticky="w", pady=(0, 6))
+        self.episode_status.grid(row=14, column=0, sticky="w", pady=(0, 6))
         
         # --- 좌표 직접 입력 (맵 좌표계) ---
         coord_input_frame = ttk.LabelFrame(left, text="맵 좌표 직접 입력 (미터)", padding=6)
-        coord_input_frame.grid(row=14, column=0, sticky="ew", pady=(6, 6))
+        coord_input_frame.grid(row=15, column=0, sticky="ew", pady=(6, 6))
         
         # Start 좌표 입력
         ttk.Label(coord_input_frame, text="시작점 (x, y, θ):").grid(row=0, column=0, sticky="w", pady=(0, 4))
@@ -224,22 +226,22 @@ class MapMarkerApp(tk.Tk):
         self.goal_theta_entry.grid(row=0, column=2, padx=(0, 4))
         ttk.Button(goal_coord_frame, text="입력", command=self.on_input_goal_coord, width=6).grid(row=0, column=3)
         
-        ttk.Checkbutton(left, text="이전 라이브 경로 숨김(최신 경로만 표시)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=15, column=0, sticky="w", pady=(6, 12))
-        ttk.Label(left, text="캔버스: 좌클릭 → 점 입력 / 가운데버튼 드래그: 팬 / Ctrl+휠: 줌", foreground="#666").grid(row=16, column=0, sticky="w", pady=(0, 12))
+        ttk.Checkbutton(left, text="이전 라이브 경로 숨김(최신 경로만 표시)", variable=self.hide_live, command=self._redraw_all_markers).grid(row=16, column=0, sticky="w", pady=(6, 12))
+        ttk.Label(left, text="캔버스: 좌클릭 → 점 입력 / 가운데버튼 드래그: 팬 / Ctrl+휠: 줌", foreground="#666").grid(row=17, column=0, sticky="w", pady=(0, 12))
 
         # --- Save/Load/Clear ---
-        ttk.Label(left, text="3) 저장 / 불러오기 / 관리", font=("", 11, "bold")).grid(row=17, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(left, text="3) 저장 / 불러오기 / 관리", font=("", 11, "bold")).grid(row=18, column=0, sticky="w", pady=(0, 6))
         btns = ttk.Frame(left)
-        btns.grid(row=18, column=0, sticky="ew", pady=(0, 2))
+        btns.grid(row=19, column=0, sticky="ew", pady=(0, 2))
         ttk.Button(btns, text="저장(.json)", command=self.on_save).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="불러오기(.json/.txt)", command=self.on_load_txt).pack(side="left", padx=(0, 6))
         ttk.Button(btns, text="전체 삭제", command=self.on_clear_all).pack(side="left")
-        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→위(+Y) / map은 위(+Y)", foreground="#666").grid(row=19, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(left, text="각도: 0°→오른쪽(+X), 90°→위(+Y) / map은 위(+Y)", foreground="#666").grid(row=20, column=0, sticky="w", pady=(10, 0))
 
-        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=20, column=0, sticky="w", pady=(12, 6))
+        ttk.Label(left, text="마커 목록", font=("", 11, "bold")).grid(row=21, column=0, sticky="w", pady=(12, 6))
         self.marker_list = tk.Listbox(left, height=18)
-        self.marker_list.grid(row=21, column=0, sticky="nsew")
-        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=22, column=0, sticky="ew", pady=(6, 0))
+        self.marker_list.grid(row=22, column=0, sticky="nsew")
+        ttk.Button(left, text="선택 삭제", command=self.on_delete_selected).grid(row=23, column=0, sticky="ew", pady=(6, 0))
 
         # Listbox interactions: hover + select
         self.marker_list.bind("<<ListboxSelect>>", self.on_list_select)
@@ -701,7 +703,18 @@ class MapMarkerApp(tk.Tk):
         for i in reversed(to_remove):
             del self.markers[i]
         
-        self.episode_mode = 'start_input'
+        # 목적지 고정 모드 체크박스 확인
+        if self.fixed_goal_mode.get():
+            # 목적지 고정 모드: 목적지부터 입력
+            self.episode_mode = 'goal_input'
+            self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
+            messagebox.showinfo("안내", "목적지 고정 모드 시작\n1. 목적지를 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n2. 시작점을 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n3. 경로(waypoint)를 클릭하여 추가\n4. '경로 입력 완료' 버튼을 눌러 다음 시작점으로 이동")
+        else:
+            # 일반 모드: 시작점부터 입력
+            self.episode_mode = 'start_input'
+            self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
+            messagebox.showinfo("안내", "새 Episode 시작\n1. 시작점을 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n2. 목적지를 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n3. 경로(waypoint)를 클릭하세요 (방향 없음)\n4. 'Path 입력 완료' 버튼을 누르세요")
+        
         self.current_route_id = self._get_next_route_id()
         self.next_seq = 0
         self.current_path_waypoints = []
@@ -709,9 +722,7 @@ class MapMarkerApp(tk.Tk):
         self.fixed_goal = None
         self._redraw_all_markers()
         self._refresh_marker_list()
-        self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
         self.complete_path_btn.config(state="disabled")
-        messagebox.showinfo("안내", "새 Episode 시작\n1. 시작점을 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n2. 목적지를 클릭 후 드래그하여 방향 설정 또는 좌표 직접 입력\n3. 경로(waypoint)를 클릭하세요 (방향 없음)\n4. 'Path 입력 완료' 버튼을 누르세요")
     
     def on_input_start_coord(self):
         """맵 좌표계에서 시작점 좌표를 직접 입력받아 마커 생성"""
@@ -758,8 +769,30 @@ class MapMarkerApp(tk.Tk):
         )
         self.fixed_start = mk
         self.markers.insert(0, mk)
-        self.episode_mode = 'goal_input'
-        self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
+        
+        # 목적지 고정 모드인지 확인
+        if self.fixed_goal_mode.get() and self.fixed_goal:
+            # 목적지 고정 모드: 이미 목적지가 설정되어 있으므로 path_input으로 전환
+            # 고정된 목적지를 현재 route_id로 복사
+            new_goal = Marker(
+                id=f"mk_{int(time.time()*1000)+1}",
+                type="goal",
+                x=self.fixed_goal.x,
+                y=self.fixed_goal.y,
+                theta_deg=self.fixed_goal.theta_deg,
+                source="live",
+                route_id=self.current_route_id,
+                seq=999  # 나중에 waypoint 개수에 따라 설정됨
+            )
+            self.markers.insert(0, new_goal)
+            self.episode_mode = 'path_input'
+            self._update_episode_status("경로(waypoint)를 클릭하여 추가하세요")
+            self.complete_path_btn.config(state="normal")
+        else:
+            # 일반 모드: goal_input으로 전환
+            self.episode_mode = 'goal_input'
+            self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하거나 좌표를 직접 입력하세요")
+        
         self._redraw_all_markers()
         self._refresh_marker_list()
         
@@ -813,9 +846,19 @@ class MapMarkerApp(tk.Tk):
         )
         self.fixed_goal = mk
         self.markers.insert(0, mk)
-        self.episode_mode = 'path_input'
-        self._update_episode_status("경로(waypoint)를 클릭하여 추가하세요")
-        self.complete_path_btn.config(state="normal")
+        
+        # 목적지 고정 모드인지 확인
+        if self.fixed_goal_mode.get():
+            # 목적지 고정 모드: 목적지가 설정되었으므로 시작점 입력 준비
+            self.episode_mode = 'start_input'
+            self._update_episode_status("목적지 고정됨: 시작점을 클릭 후 드래그하거나 좌표를 직접 입력하세요")
+            self.complete_path_btn.config(state="disabled")
+        else:
+            # 일반 모드: path_input으로 전환
+            self.episode_mode = 'path_input'
+            self._update_episode_status("경로(waypoint)를 클릭하여 추가하세요")
+            self.complete_path_btn.config(state="normal")
+        
         self._redraw_all_markers()
         self._refresh_marker_list()
         
@@ -833,7 +876,11 @@ class MapMarkerApp(tk.Tk):
             # path_input 모드: 첫 번째 trajectory 완료
             # goal의 seq를 waypoint 개수 + 1로 설정
             if self.fixed_goal:
-                self.fixed_goal.seq = len(self.current_path_waypoints) + 1
+                # 마커 리스트에서 현재 route_id의 goal 찾아서 seq 업데이트
+                for mk in self.markers:
+                    if mk.route_id == self.current_route_id and mk.type == "goal":
+                        mk.seq = len(self.current_path_waypoints) + 1
+                        break
             
             # 현재 path의 waypoint들을 마커에 추가
             for wp in self.current_path_waypoints:
@@ -842,37 +889,72 @@ class MapMarkerApp(tk.Tk):
             self._redraw_all_markers()
             self._refresh_marker_list()
             
-            # start/goal 재입력 여부 확인
-            result = messagebox.askyesno("확인", "시작점과 목적지를 새로 입력하시겠습니까?")
-            
-            if result:
-                # Yes: start/goal 재입력
-                # 현재 trajectory의 모든 마커를 saved로 변경 (마커 목록에 계속 표시되도록)
+            # 목적지 고정 모드 체크박스 확인
+            if self.fixed_goal_mode.get():
+                # 목적지 고정 모드: 목적지는 고정, 다음 시작점 입력 준비
+                # 현재 trajectory의 모든 마커를 saved로 변경
                 for mk in self.markers:
                     if mk.route_id == self.current_route_id and mk.source == "live":
                         mk.source = "saved"
                 
-                # live 마커가 남아있으면 제거 (혹시 모를 경우를 대비)
-                to_remove = [i for i, mk in enumerate(self.markers) if mk.source == "live"]
-                for i in reversed(to_remove):
-                    del self.markers[i]
-                
-                self.episode_mode = 'start_input'
+                # 새로운 trajectory를 위한 route_id
                 self.current_route_id = self._get_next_route_id()
                 self.next_seq = 0
                 self.current_path_waypoints = []
-                self.fixed_start = None
-                self.fixed_goal = None
+                self.fixed_start = None  # 새로운 시작점을 위해 초기화
+                
+                # 고정된 목적지만 복사 (목적지는 고정)
+                if self.fixed_goal:
+                    new_goal = Marker(
+                        id=f"mk_{int(time.time()*1000)+1}",
+                        type="goal",
+                        x=self.fixed_goal.x,
+                        y=self.fixed_goal.y,
+                        theta_deg=self.fixed_goal.theta_deg,
+                        source="live",
+                        route_id=self.current_route_id,
+                        seq=999  # 나중에 waypoint 개수에 따라 설정됨
+                    )
+                    self.markers.insert(0, new_goal)
+                
+                # 다음 시작점 입력 준비
+                self.episode_mode = 'start_input'
                 self._redraw_all_markers()
-                self._refresh_marker_list()  # saved 마커는 여전히 목록에 표시됨
-                self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하세요")
+                self._refresh_marker_list()
+                self._update_episode_status("목적지 고정됨: 다음 시작점을 클릭 후 드래그하거나 좌표를 직접 입력하세요")
                 self.complete_path_btn.config(state="disabled")
             else:
-                # No: start/goal 고정 후 여러 trajectory 생성
-                # 첫 번째 trajectory의 모든 마커를 saved로 변경 (마커 목록에 계속 표시되도록)
-                for mk in self.markers:
-                    if mk.route_id == self.current_route_id and mk.source == "live":
-                        mk.source = "saved"
+                # 기존 로직: start/goal 재입력 여부 확인
+                result = messagebox.askyesno("확인", "시작점과 목적지를 새로 입력하시겠습니까?")
+                
+                if result:
+                    # Yes: start/goal 재입력
+                    # 현재 trajectory의 모든 마커를 saved로 변경 (마커 목록에 계속 표시되도록)
+                    for mk in self.markers:
+                        if mk.route_id == self.current_route_id and mk.source == "live":
+                            mk.source = "saved"
+                    
+                    # live 마커가 남아있으면 제거 (혹시 모를 경우를 대비)
+                    to_remove = [i for i, mk in enumerate(self.markers) if mk.source == "live"]
+                    for i in reversed(to_remove):
+                        del self.markers[i]
+                    
+                    self.episode_mode = 'start_input'
+                    self.current_route_id = self._get_next_route_id()
+                    self.next_seq = 0
+                    self.current_path_waypoints = []
+                    self.fixed_start = None
+                    self.fixed_goal = None
+                    self._redraw_all_markers()
+                    self._refresh_marker_list()  # saved 마커는 여전히 목록에 표시됨
+                    self._update_episode_status("시작점을 클릭 후 드래그하여 방향을 설정하세요")
+                    self.complete_path_btn.config(state="disabled")
+                else:
+                    # No: start/goal 고정 후 여러 trajectory 생성
+                    # 첫 번째 trajectory의 모든 마커를 saved로 변경 (마커 목록에 계속 표시되도록)
+                    for mk in self.markers:
+                        if mk.route_id == self.current_route_id and mk.source == "live":
+                            mk.source = "saved"
                 
                 # fixed_start_goal 모드로 전환
                 self.episode_mode = 'fixed_start_goal'
@@ -1127,8 +1209,30 @@ class MapMarkerApp(tk.Tk):
             )
             self.fixed_start = mk
             self.markers.insert(0, mk)
-            self.episode_mode = 'goal_input'
-            self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하세요")
+            
+            # 목적지 고정 모드인지 확인
+            if self.fixed_goal_mode.get() and self.fixed_goal:
+                # 목적지 고정 모드: 이미 목적지가 설정되어 있으므로 path_input으로 전환
+                # 고정된 목적지를 현재 route_id로 복사
+                new_goal = Marker(
+                    id=f"mk_{int(time.time()*1000)+1}",
+                    type="goal",
+                    x=self.fixed_goal.x,
+                    y=self.fixed_goal.y,
+                    theta_deg=self.fixed_goal.theta_deg,
+                    source="live",
+                    route_id=self.current_route_id,
+                    seq=999  # 나중에 waypoint 개수에 따라 설정됨
+                )
+                self.markers.insert(0, new_goal)
+                self.episode_mode = 'path_input'
+                self._update_episode_status("경로(waypoint)를 클릭하여 추가하세요")
+                self.complete_path_btn.config(state="normal")
+            else:
+                # 일반 모드: goal_input으로 전환
+                self.episode_mode = 'goal_input'
+                self._update_episode_status("목적지를 클릭 후 드래그하여 방향을 설정하세요")
+            
             self._redraw_all_markers()
             self._refresh_marker_list()
             
@@ -1166,11 +1270,21 @@ class MapMarkerApp(tk.Tk):
             )
             self.fixed_goal = mk
             self.markers.insert(0, mk)
-            self.episode_mode = 'path_input'
-            self.next_seq = 0
-            self.current_path_waypoints = []
-            self._update_episode_status("경로(waypoint)를 클릭하세요 (방향 없음)")
-            self.complete_path_btn.config(state="normal")
+            
+            # 목적지 고정 모드인지 확인
+            if self.fixed_goal_mode.get():
+                # 목적지 고정 모드: 목적지가 설정되었으므로 시작점 입력 준비
+                self.episode_mode = 'start_input'
+                self._update_episode_status("목적지 고정됨: 시작점을 클릭 후 드래그하거나 좌표를 직접 입력하세요")
+                self.complete_path_btn.config(state="disabled")
+            else:
+                # 일반 모드: path_input으로 전환
+                self.episode_mode = 'path_input'
+                self.next_seq = 0
+                self.current_path_waypoints = []
+                self._update_episode_status("경로(waypoint)를 클릭하세요 (방향 없음)")
+                self.complete_path_btn.config(state="normal")
+            
             self._redraw_all_markers()
             self._refresh_marker_list()
             

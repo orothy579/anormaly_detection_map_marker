@@ -1,0 +1,95 @@
+{
+  "metadata": {
+    "version": "1.8",
+    "saved_by": "map_marker_app_v_1_8.py",
+    "yaml_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_docking_test.yaml",
+    "image_path": "/home/changhyeon/isaac_ros_ws/map_marker_gen/maps/fullwarehouse_docking_test.png",
+    "resolution": 0.05,
+    "origin": [
+      -27.975,
+      -41.37500152587891,
+      0.0
+    ],
+    "use_center": true
+  },
+  "markers": [
+    {
+      "id": "mk_1763012364350",
+      "type": "start",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 0,
+      "u_px": 120.0,
+      "v_px": 671.0,
+      "theta_img_deg": 7.13,
+      "x_map": -21.95,
+      "y_map": -0.150002,
+      "theta_map_rad": 0.124355
+    },
+    {
+      "id": "mk_1763012372307",
+      "type": "goal",
+      "source": "saved",
+      "route_id": 1,
+      "seq": 1,
+      "u_px": 559.0,
+      "v_px": 668.0,
+      "theta_img_deg": 0.0,
+      "x_map": 0.0,
+      "y_map": 0.0,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1763012388688",
+      "type": "start",
+      "source": "saved",
+      "route_id": 2,
+      "seq": 0,
+      "u_px": 191.0,
+      "v_px": 560.0,
+      "theta_img_deg": 315.0,
+      "x_map": -18.4,
+      "y_map": 5.399998,
+      "theta_map_rad": -0.785398
+    },
+    {
+      "id": "mk_1763012394394",
+      "type": "goal",
+      "source": "saved",
+      "route_id": 2,
+      "seq": 3,
+      "u_px": 559.0,
+      "v_px": 668.0,
+      "theta_img_deg": 0.0,
+      "x_map": 0.0,
+      "y_map": 0.0,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1763012397977",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 2,
+      "seq": 1,
+      "u_px": 290.0,
+      "v_px": 651.0,
+      "theta_img_deg": 0.0,
+      "x_map": -13.45,
+      "y_map": 0.849998,
+      "theta_map_rad": 0.0
+    },
+    {
+      "id": "mk_1763012400894",
+      "type": "waypoint",
+      "source": "saved",
+      "route_id": 2,
+      "seq": 2,
+      "u_px": 396.0,
+      "v_px": 668.0,
+      "theta_img_deg": 0.0,
+      "x_map": -8.15,
+      "y_map": -2e-06,
+      "theta_map_rad": 0.0
+    }
+  ]
+}
